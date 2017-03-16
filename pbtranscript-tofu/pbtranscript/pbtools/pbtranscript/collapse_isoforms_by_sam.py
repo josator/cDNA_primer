@@ -133,6 +133,12 @@ def collapse_fuzzy_junctions(gff_filename, group_filename, allow_extra_5exon, in
                     r1.ref_exons[n2-1].start <= r2.ref_exons[-1].end < r1.ref_exons[n2].end
         return False
 
+    group_info = {}
+    with open(group_filename) as f:
+        for line in f:
+            pbid, members = line.strip().split('\t')
+            group_info[pbid] = [x for x in members.split(',')]
+
     d = {}
     recs = defaultdict(lambda: {'+':IntervalTree(), '-':IntervalTree()}) # chr --> strand --> tree
     fuzzy_match = defaultdict(lambda: [])
@@ -142,20 +148,15 @@ def collapse_fuzzy_junctions(gff_filename, group_filename, allow_extra_5exon, in
         r.segments = r.ref_exons
         for r2 in recs[r.chr][r.strand].find(r.start, r.end):
             r2.segments = r2.ref_exons
-            m = compare_junctions.compare_junctions(r, r2, internal_fuzzy_max_dist=internal_fuzzy_max_dist)
+            m = compare_junctions.compare_junctions(r, r2, group_info, internal_fuzzy_max_dist=internal_fuzzy_max_dist)
             if can_merge(m, r, r2):
                 fuzzy_match[r2.seqid].append(r.seqid)
                 has_match = True
+                print( "Fuzzy match: " + r2.seqid + " and " + r.seqid )
                 break
         if not has_match:
             recs[r.chr][r.strand].insert(r.start, r.end, r)
             fuzzy_match[r.seqid] = [r.seqid]
-
-    group_info = {}
-    with open(group_filename) as f:
-        for line in f:
-            pbid, members = line.strip().split('\t')
-            group_info[pbid] = [x for x in members.split(',')]
 
     # pick for each fuzzy group the one that has the most exons (if tie, then most FL)
     keys = fuzzy_match.keys()

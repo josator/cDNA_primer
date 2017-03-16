@@ -1,8 +1,9 @@
+import re
 
 def overlaps(s1, s2):
     return max(0, min(s1.end, s2.end) - max(s1.start, s2.start))
 
-def compare_junctions(r1, r2, internal_fuzzy_max_dist=0):
+def compare_junctions(r1, r2, group_info, internal_fuzzy_max_dist=0):
     """
     r1, r2 should both be BioReaders.GMAPSAMRecord
     
@@ -15,6 +16,41 @@ def compare_junctions(r1, r2, internal_fuzzy_max_dist=0):
     <internal_fuzzy_max_dist> allows for very small amounts of diff between internal exons
     useful for chimeric & slightly bad mappings
     """
+
+    # extract full-length group information
+    g1, fl1 = 0, 0
+    for group in group_info[r1.seqid]:
+        fl1 += int( re.search( 'f.*p', group.split( "|", 1 )[1] ).group(0)[1:-1] )
+        g1 += 1
+    
+    g2, fl2 = 0, 0
+    for group in group_info[r2.seqid]:
+        fl2 += int( re.search( 'f.*p', group.split( "|", 1 )[1] ).group(0)[1:-1] )
+        g2 += 1
+
+    # The same condition applied in compare exon matrix 
+    if abs( r1.segments[0].start - r2.segments[0].start ) > 100:
+        if r1.segments[0].start < r2.segments[0].start and fl2 > g2: 
+            return "nomatch"
+        if r1.segments[0].start > r2.segments[0].start and fl1 > g1:
+            return "nomatch"
+    else:
+        if r1.segments[0].start < r2.segments[0].start and fl1 == g1 and fl2 > g2: 
+            return "nomatch"
+        if r1.segments[0].start > r2.segments[0].start and fl2 == g2 and fl1 > g1:
+            return "nomatch"
+
+    if abs( r1.segments[-1].end - r2.segments[-1].end ) > 100:
+        if r1.segments[-1].end < r2.segments[-1].end and fl1 > g1: 
+            return "nomatch"
+        if r1.segments[-1].end > r2.segments[-1].end and fl2 > g2:
+            return "nomatch"
+    else:
+        if r1.segments[-1].end < r2.segments[-1].end and fl2 == g2 and fl1 > g1: 
+            return "nomatch"
+        if r1.segments[-1].end > r2.segments[-1].end and fl1 == g1 and fl2 > g2:
+            return "nomatch"
+
     found_overlap = False
     # super/partial --- i > 0, j = 0
     # exact/partial --- i = 0, j = 0

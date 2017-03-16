@@ -1,4 +1,4 @@
-import os, sys
+import os, sys, re
 import numpy as np
 import pbtools.pbtranscript.BioReaders as BioReaders
 import pbtools.pbtranscript.c_branch as c_branch
@@ -297,8 +297,10 @@ def iterative_merge_transcripts(result_list, node_d, merge5=True):
     """
     result_list --- list of (qID, strand, binary exon sparse matrix)
     """
+
     # sort by strand then starting position
     result_list.sort(key=lambda x: (x[1], x[2].nonzero()[1][0]))
+    
     i = 0
     while i < len(result_list) - 1:
         j = i + 1
@@ -308,7 +310,9 @@ def iterative_merge_transcripts(result_list, node_d, merge5=True):
             if (strand1 != strand2) or (m1.nonzero()[1][-1] < m2.nonzero()[1][0]):
                 break
             else:
-                flag, m3 = compare_exon_matrix(m1, m2, node_d, strand1, merge5)
+                print( id1 )
+                print( id2 )
+                flag, m3 = compare_exon_matrix(m1, m2, id1, id2, node_d, strand1, merge5)
                 if flag:
                     result_list[i] = (id1+','+id2, strand1, m3)
                     result_list.pop(j)
@@ -316,8 +320,7 @@ def iterative_merge_transcripts(result_list, node_d, merge5=True):
                     j += 1
         i += 1
 
-        
-def compare_exon_matrix(m1, m2, node_d, strand, merge5=True):
+def compare_exon_matrix(m1, m2, id1, id2, node_d, strand, merge5=True):
     """
     m1, m2 are 1-d array where m1[0, i] is 1 if it uses the i-th exon, otherwise 0
     compare the two and merge them if they are compatible
@@ -329,12 +332,27 @@ def compare_exon_matrix(m1, m2, node_d, strand, merge5=True):
 
     return {True|False}, {merged array|None}
     """
-    l1 = m1.nonzero()[1]
-    l2 = m2.nonzero()[1]
 
-
+    l1, l2 = m1.nonzero()[1], m2.nonzero()[1]
+    #print( l1 )
+    #print( l2 )
     # let l1 be the one that has the earliest start
-    if l2[0] < l1[0]: l1, l2 = l2, l1
+    if l2[0] < l1[0]:
+        l1, l2 = l2, l1
+        id1, id2 = id2, id1
+
+    # extract full-length group information
+    g1, fl1 = 0, 0
+    for group in id1.split(","):
+        fl1 += int( re.search( 'f.*p', group.split( "|", 1 )[1] ).group(0)[1:-1] )
+        g1 += 1
+    print( "Merged: " + str( g1 ) + ", total full-length: " + str( fl1 ) )
+    
+    g2, fl2 = 0, 0
+    for group in id2.split(","):
+        fl2 += int( re.search( 'f.*p', group.split( "|", 1 )[1] ).group(0)[1:-1] )
+        g2 += 1
+    print( "Merged: " + str( g2 ) + ", total full-length: " + str( fl2 ) )
 
     # does not intersect at all
     if l1[-1] < l2[0]: return False, None
@@ -347,6 +365,18 @@ def compare_exon_matrix(m1, m2, node_d, strand, merge5=True):
         if l1[i] == l2[0]: break
         elif i > 0 and (strand=='-' and node_d[l1[i-1]].end!=node_d[l1[i]].start): return False, None # 3' end disagree
         elif i > 0 and (strand=='+' and not merge5 and node_d[l1[i-1]].end!=node_d[l1[i]].start): return False, None # 5' end disagree, in other words m1 has an extra 5' exon that m2 does not have and merge5 is no allowed
+
+    if abs( node_d[l1[0]].start - node_d[l2[0]].start ) > 100:
+        if node_d[l1[0]].start < node_d[l2[0]].start and fl2 > g2: 
+            return False, None
+        if node_d[l1[0]].start > node_d[l2[0]].start and fl1 > g1:
+            return False, None
+    else:
+        if node_d[l1[0]].start < node_d[l2[0]].start and fl1 == g1 and fl2 > g2: 
+            return False, None
+        if node_d[l1[0]].start > node_d[l2[0]].start and fl2 == g2 and fl1 > g1:
+            return False, None
+
     # at this point: l1[i] == l2[0]
 
     for j in xrange(i, min(n1, n2+i)):
@@ -355,26 +385,60 @@ def compare_exon_matrix(m1, m2, node_d, strand, merge5=True):
             return False, None
 
     # pre: l1 and l2 agree up to j, j-i
-    if j == n1-1: # check that the remaining of l2 are adjacent
-        if j-i == n2-1:
+    if j == n1-1: # End of l1, check if remaining l2 are adjacent
+        if j-i == n2-1: # End of l2 and l1
+            print( "-> " + str( m1.nonzero()[1] ) )
+            if abs( node_d[l1[n1-1]].end - node_d[l2[n2-1]].end ) > 100:
+                if node_d[l1[0]].end < node_d[l2[0]].end and fl1 > g1: 
+                    return False, None
+                if node_d[l1[0]].end > node_d[l2[0]].end and fl2 > g2:
+                    return False, None
+            else:
+                if node_d[l1[0]].end < node_d[l2[0]].end and fl2 == g2 and fl1 > g1: 
+                    return False, None
+                if node_d[l1[0]].end > node_d[l2[0]].end and fl1 == g1 and fl2 > g2:
+                    return False, None
+
             return True, m1
         for k in xrange(j-i+1, n2):
             # case 1: this is the 3' end, check that there are no additional 3' exons
             if (strand=='+' and node_d[l2[k-1]].end!=node_d[l2[k]].start): return False, None
             # case 2: this is the 5' end, check that there are no additional 5' exons unless allowed
             if (strand=='-' and not merge5 and node_d[l2[k-1]].end!=node_d[l2[k]].start): return False, None
+        if abs( node_d[l1[n1-1]].end - node_d[l2[n2-1]].end ) > 100:
+            if node_d[l1[0]].end < node_d[l2[0]].end and fl1 > g1: 
+                return False, None
+            if node_d[l1[0]].end > node_d[l2[0]].end and fl2 > g2:
+                return False, None
+        else:
+            if node_d[l1[0]].end < node_d[l2[0]].end and fl2 == g2 and fl1 > g1: 
+                return False, None
+            if node_d[l1[0]].end > node_d[l2[0]].end and fl1 == g1 and fl2 > g2:
+                return False, None
         m1[0, l2[j-i+1]:] = m1[0, l2[j-i+1]:] + m2[0, l2[j-i+1]:]
+        #print( "-> " + str( m1.nonzero()[1] ) )
         return True, m1
-    elif j-i == n2-1:
+    elif j-i == n2-1: # End of l2, l1 has remaining
         for k in xrange(j+1, n1):
             # case 1, but for m1
             if (strand=='+' and node_d[l1[k-1]].end!=node_d[l1[k]].start): return False, None
             # case 2, but for m1
             if (strand=='-' and not merge5 and node_d[l1[k-1]].end!=node_d[l1[k]].start): return False, None
+        if abs( node_d[l1[n1-1]].end - node_d[l2[n2-1]].end ) > 100:
+            if node_d[l1[0]].end < node_d[l2[0]].end and fl1 > g1: 
+                return False, None
+            if node_d[l1[0]].end > node_d[l2[0]].end and fl2 > g2:
+                return False, None
+        else:
+            if node_d[l1[0]].end < node_d[l2[0]].end and fl2 == g2 and fl1 > g1: 
+                return False, None
+            if node_d[l1[0]].end > node_d[l2[0]].end and fl1 == g1 and fl2 > g2:
+                return False, None
+
+        print( "-> " + str( m1.nonzero()[1] ) )
         return True, m1
 
     raise Exception, "Should not happen"
-
 
 def trim_exon_left_to_right(m1, m2, node_d, max_distance):
     """

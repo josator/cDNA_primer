@@ -232,7 +232,7 @@ class BranchSimple:
     #         else:
     #             i += 1 # nothing to do, advance
 
-    def process_records(self, records, allow_extra_5_exons, skip_5_exon_alt, f_good, f_bad, f_group, tolerate_end=100, starting_isoform_index=0, gene_prefix='PB'):
+    def process_records(self, records, allow_extra_5_exons, skip_5_exon_alt, f_good, f_bad, f_group, tolerate_end=100, starting_isoform_index=0, gene_prefix='PB', collapse_3_distance=100):
         """
         Given a set of records
         (1) process them by running through parse_transfrag2contig
@@ -259,8 +259,8 @@ class BranchSimple:
             result.append((r.qID, r.flag.strand, m))
 
         result_merged = list(result)
-        iterative_merge_transcripts(result_merged, node_d, allow_extra_5_exons)
-
+        result_merged = iterative_merge_transcripts(list(result), node_d, collapse_3_distance, allow_extra_5_exons )
+        
         print >> sys.stderr, "merged {0} down to {1} transcripts".format(len(result), len(result_merged))
 
         self.isoform_index = starting_isoform_index
@@ -293,13 +293,18 @@ class BranchSimple:
 
         return result, result_merged
 
-def iterative_merge_transcripts(result_list, node_d, merge5=True):
+def iterative_merge_transcripts(result_list, node_d, collapse_3_distance, merge5 = True):
     """
     result_list --- list of (qID, strand, binary exon sparse matrix)
     """
 
-    # sort by strand then starting position
-    result_list.sort(key=lambda x: (x[1], x[2].nonzero()[1][0]))
+    # sort by starting/ending position in ascending/descending order depending on 3' location (+/-)
+    result_list_plus = [ x for x in result_list if x[1] == '+' ]
+    result_list_plus.sort(key=lambda x: (x[1], x[2].nonzero()[1][-1]), reverse=True)
+    result_list_minus = [ x for x in result_list if x[1] == '-' ]
+    result_list_minus.sort(key=lambda x: (x[1], x[2].nonzero()[1][0]))
+
+    result_list = result_list_plus + result_list_minus
     
     i = 0
     while i < len(result_list) - 1:
@@ -312,7 +317,7 @@ def iterative_merge_transcripts(result_list, node_d, merge5=True):
             else:
                 print( id1 )
                 print( id2 )
-                flag, m3 = compare_exon_matrix(m1, m2, id1, id2, node_d, strand1, merge5)
+                flag, m3 = compare_exon_matrix(m1, m2, id1, id2, node_d, strand1, collapse_3_distance, merge5)
                 if flag:
                     result_list[i] = (id1+','+id2, strand1, m3)
                     result_list.pop(j)
@@ -320,7 +325,9 @@ def iterative_merge_transcripts(result_list, node_d, merge5=True):
                     j += 1
         i += 1
 
-def compare_exon_matrix(m1, m2, id1, id2, node_d, strand, merge5=True):
+    return result_list
+
+def compare_exon_matrix(m1, m2, id1, id2, node_d, strand, collapse_3_distance, merge5=True):
     """
     m1, m2 are 1-d array where m1[0, i] is 1 if it uses the i-th exon, otherwise 0
     compare the two and merge them if they are compatible
@@ -340,19 +347,35 @@ def compare_exon_matrix(m1, m2, id1, id2, node_d, strand, merge5=True):
     if l2[0] < l1[0]:
         l1, l2 = l2, l1
         id1, id2 = id2, id1
+        m1, m2 = m2, m1
 
     # extract full-length group information
-    g1, fl1 = 0, 0
+    g1, fl1, mfl1 = 0, 0, -1
     for group in id1.split(","):
-        fl1 += int( re.search( 'f.*p', group.split( "|", 1 )[1] ).group(0)[1:-1] )
+        aux1 = int( re.search( 'f.*p', group.split( "|", 1 )[1] ).group(0)[1:-1] )
+        if aux1 > mfl1:
+            mfl1 = aux1
+        fl1 += aux1
         g1 += 1
-    print( "Merged: " + str( g1 ) + ", total full-length: " + str( fl1 ) )
     
-    g2, fl2 = 0, 0
+    #print( "Merged: " + str( g1 ) + ", total full-length: " + str( fl1 ) + ", longest full-length: " + str( mfl1 ) )
+
+    g2, fl2, mfl2 = 0, 0, -1
     for group in id2.split(","):
-        fl2 += int( re.search( 'f.*p', group.split( "|", 1 )[1] ).group(0)[1:-1] )
+        aux2 = int( re.search( 'f.*p', group.split( "|", 1 )[1] ).group(0)[1:-1] )
+        if aux2 > mfl2:
+            mfl2 = aux2
+        fl2 += aux2
         g2 += 1
-    print( "Merged: " + str( g2 ) + ", total full-length: " + str( fl2 ) )
+
+    #print( "Merged: " + str( g2 ) + ", total full-length: " + str( fl2 ) + ", longest full-length: " + str( mfl2 ) )
+
+    #Set minimum distance to avoid collapses in 5' and 3'
+    dist_l, dist_r = 0, 0
+    if strand == '+':
+        dist_l, dist_r = 300, collapse_3_distance
+    else:
+        dist_l, dist_r = collapse_3_distance, 300
 
     # does not intersect at all
     if l1[-1] < l2[0]: return False, None
@@ -363,40 +386,36 @@ def compare_exon_matrix(m1, m2, id1, id2, node_d, strand, merge5=True):
     #  not ok if this is at the 3' end and does not share the last exon; if 5' end, ok to miss exons as long as rest agrees
     for i in xrange(n1):
         if l1[i] == l2[0]: break
-        elif i > 0 and (strand=='-' and node_d[l1[i-1]].end!=node_d[l1[i]].start): return False, None # 3' end disagree
-        elif i > 0 and (strand=='+' and not merge5 and node_d[l1[i-1]].end!=node_d[l1[i]].start): return False, None # 5' end disagree, in other words m1 has an extra 5' exon that m2 does not have and merge5 is no allowed
+        elif i > 0 and (strand=='-' and node_d[l1[i-1]].end!=node_d[l1[i]].start):
+            return False, None # 3' end disagree
+        elif i > 0 and (strand=='+' and node_d[l1[i-1]].end!=node_d[l1[i]].start):
+            if not merge5 or fl2 > g2:
+                return False, None # 5' end disagree, in other words m1 has an extra 5' exon that m2 does not have and merge5 is no allowed
 
-    if abs( node_d[l1[0]].start - node_d[l2[0]].start ) > 100:
+    if abs( node_d[l1[0]].start - node_d[l2[0]].start ) > dist_l:
         if node_d[l1[0]].start < node_d[l2[0]].start and fl2 > g2: 
             return False, None
         if node_d[l1[0]].start > node_d[l2[0]].start and fl1 > g1:
             return False, None
-    else:
-        if node_d[l1[0]].start < node_d[l2[0]].start and fl1 == g1 and fl2 > g2: 
-            return False, None
-        if node_d[l1[0]].start > node_d[l2[0]].start and fl2 == g2 and fl1 > g1:
-            return False, None
 
     # at this point: l1[i] == l2[0]
+
+    if strand == '+' and mfl1 < mfl2 :
+        m1[0, :l2[0]] = m2[0, :l2[0]]
 
     for j in xrange(i, min(n1, n2+i)):
         # matching l1[j] with l2[j-i]
         if l1[j] != l2[j-i]: # they must not match
             return False, None
-
+ 
     # pre: l1 and l2 agree up to j, j-i
     if j == n1-1: # End of l1, check if remaining l2 are adjacent
-        if j-i == n2-1: # End of l2 and l1
-            print( "-> " + str( m1.nonzero()[1] ) )
-            if abs( node_d[l1[n1-1]].end - node_d[l2[n2-1]].end ) > 100:
-                if node_d[l1[0]].end < node_d[l2[0]].end and fl1 > g1: 
+        if j-i == n2-1: # End of l1 and l2
+
+            if abs( node_d[l1[n1-1]].end - node_d[l2[n2-1]].end ) > dist_r:
+                if node_d[l1[n1-1]].end < node_d[l2[n2-1]].end and fl1 > g1: 
                     return False, None
-                if node_d[l1[0]].end > node_d[l2[0]].end and fl2 > g2:
-                    return False, None
-            else:
-                if node_d[l1[0]].end < node_d[l2[0]].end and fl2 == g2 and fl1 > g1: 
-                    return False, None
-                if node_d[l1[0]].end > node_d[l2[0]].end and fl1 == g1 and fl2 > g2:
+                if node_d[l1[n1-1]].end > node_d[l2[n2-1]].end and fl2 > g2:
                     return False, None
 
             return True, m1
@@ -404,38 +423,38 @@ def compare_exon_matrix(m1, m2, id1, id2, node_d, strand, merge5=True):
             # case 1: this is the 3' end, check that there are no additional 3' exons
             if (strand=='+' and node_d[l2[k-1]].end!=node_d[l2[k]].start): return False, None
             # case 2: this is the 5' end, check that there are no additional 5' exons unless allowed
-            if (strand=='-' and not merge5 and node_d[l2[k-1]].end!=node_d[l2[k]].start): return False, None
-        if abs( node_d[l1[n1-1]].end - node_d[l2[n2-1]].end ) > 100:
-            if node_d[l1[0]].end < node_d[l2[0]].end and fl1 > g1: 
+            if (strand=='-' and node_d[l2[k-1]].end!=node_d[l2[k]].start):
+                if not merge5 or fl1 > g1:
+                    return False, None
+
+        if abs( node_d[l1[n1-1]].end - node_d[l2[n2-1]].end ) > dist_r:
+            if node_d[l1[n1-1]].end < node_d[l2[n2-1]].end and fl1 > g1: 
                 return False, None
-            if node_d[l1[0]].end > node_d[l2[0]].end and fl2 > g2:
+            if node_d[l1[n1-1]].end > node_d[l2[n2-1]].end and fl2 > g2:
                 return False, None
-        else:
-            if node_d[l1[0]].end < node_d[l2[0]].end and fl2 == g2 and fl1 > g1: 
-                return False, None
-            if node_d[l1[0]].end > node_d[l2[0]].end and fl1 == g1 and fl2 > g2:
-                return False, None
-        m1[0, l2[j-i+1]:] = m1[0, l2[j-i+1]:] + m2[0, l2[j-i+1]:]
-        #print( "-> " + str( m1.nonzero()[1] ) )
+
+        if strand == '+' or ( strand == '-' and mfl1 <= mfl2 ):
+            m1[0, l2[j-i+1]:] = m2[0, l2[j-i+1]:]
+
         return True, m1
     elif j-i == n2-1: # End of l2, l1 has remaining
         for k in xrange(j+1, n1):
             # case 1, but for m1
             if (strand=='+' and node_d[l1[k-1]].end!=node_d[l1[k]].start): return False, None
             # case 2, but for m1
-            if (strand=='-' and not merge5 and node_d[l1[k-1]].end!=node_d[l1[k]].start): return False, None
-        if abs( node_d[l1[n1-1]].end - node_d[l2[n2-1]].end ) > 100:
-            if node_d[l1[0]].end < node_d[l2[0]].end and fl1 > g1: 
+            if (strand=='-' and node_d[l1[k-1]].end!=node_d[l1[k]].start):
+                if not merge5 or fl2 > g2:
+                    return False, None
+
+        if abs( node_d[l1[n1-1]].end - node_d[l2[n2-1]].end ) > dist_r:
+            if node_d[l1[n1-1]].end < node_d[l2[n2-1]].end and fl1 > g1: 
                 return False, None
-            if node_d[l1[0]].end > node_d[l2[0]].end and fl2 > g2:
-                return False, None
-        else:
-            if node_d[l1[0]].end < node_d[l2[0]].end and fl2 == g2 and fl1 > g1: 
-                return False, None
-            if node_d[l1[0]].end > node_d[l2[0]].end and fl1 == g1 and fl2 > g2:
+            if node_d[l1[n1-1]].end > node_d[l2[n2-1]].end and fl2 > g2:
                 return False, None
 
-        print( "-> " + str( m1.nonzero()[1] ) )
+        if strand == '-' and mfl1 < mfl2 :
+            m1[0, l2[j-i]+1:] = m2[0, l2[j-i]+1:]
+
         return True, m1
 
     raise Exception, "Should not happen"

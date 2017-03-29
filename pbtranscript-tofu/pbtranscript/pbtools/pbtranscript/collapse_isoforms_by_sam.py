@@ -148,7 +148,7 @@ def collapse_fuzzy_junctions(gff_filename, group_filename, allow_extra_5exon, in
         r.segments = r.ref_exons
         for r2 in recs[r.chr][r.strand].find(r.start, r.end):
             r2.segments = r2.ref_exons
-            m = compare_junctions.compare_junctions(r, r2, group_info, args.collapse_3_distance, internal_fuzzy_max_dist=internal_fuzzy_max_dist)
+            m = compare_junctions.compare_junctions(r, r2, group_info, args.collapse_3_distance, args.collapse_5_distance, internal_fuzzy_max_dist=internal_fuzzy_max_dist)
             if can_merge(m, r, r2):
                 fuzzy_match[r2.seqid].append(r.seqid)
                 has_match = True
@@ -209,7 +209,7 @@ def main(args):
     iter = b.iter_gmap_sam(args.sam, ignored_fout)
     for recs in iter:
         for v in recs.itervalues():
-            if len(v) > 0: b.process_records(v, args.allow_extra_5exon, False, f_good, f_bad, f_txt, collapse_3_distance = args.collapse_3_distance)
+            if len(v) > 0: b.process_records(v, args.allow_extra_5exon, False, f_good, f_bad, f_txt, collapse_3_distance = args.collapse_3_distance, collapse_5_distance = args.collapse_5_distance)
     
     ignored_fout.close()
     f_good.close()
@@ -256,7 +256,8 @@ if __name__ == "__main__":
     parser.add_argument("--max_fuzzy_junction", default=5, type=int, help="Max fuzzy junction dist (default: 5 bp)")
     parser.add_argument("--flnc_coverage", dest="flnc_coverage", type=int, default=-1, help="Minimum # of FLNC reads, only use this for aligned FLNC reads, otherwise results undefined!")
     parser.add_argument("--dun-merge-5-shorter", action="store_false", dest="allow_extra_5exon", default=True, help="Don't collapse shorter 5' transcripts (default: turned off)")
-    parser.add_argument("--collapse-3-distance", default=100, dest="collapse_3_distance", type=int, help="Don't collapse 3' transcripts if exon distance is smaller (default: 100)")
+    parser.add_argument("--collapse-3-distance", default=60, dest="collapse_3_distance", type=int, help="Don't collapse 3' transcripts if exon distance is smaller (default: 60)")
+    parser.add_argument("--collapse-5-distance", default=300, dest="collapse_5_distance", type=int, help="Don't collapse 5' transcripts if exon distance is smaller (default: 300)")
     
     args = parser.parse_args()
     

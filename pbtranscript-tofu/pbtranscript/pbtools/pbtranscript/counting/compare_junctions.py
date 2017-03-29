@@ -3,7 +3,7 @@ import re
 def overlaps(s1, s2):
     return max(0, min(s1.end, s2.end) - max(s1.start, s2.start))
 
-def compare_junctions(r1, r2, group_info, collapse_3_distance, internal_fuzzy_max_dist=0):
+def compare_junctions(r1, r2, group_info, collapse_3_distance, collapse_5_distance, internal_fuzzy_max_dist=0):
     """
     r1, r2 should both be BioReaders.GMAPSAMRecord
     
@@ -37,9 +37,9 @@ def compare_junctions(r1, r2, group_info, collapse_3_distance, internal_fuzzy_ma
     #Set minimum distance to avoid collapses in 3' and 5'
     dist_l, dist_r = 0, 0
     if r1.strand == '+':
-        dist_l, dist_r = 300, collapse_3_distance
+        dist_l, dist_r = collapse_5_distance, collapse_3_distance
     else:
-        dist_l, dist_r = collapse_3_distance, 300
+        dist_l, dist_r = collapse_3_distance, collapse_5_distance
 
     # The same condition applied in compare exon matrix 
     if abs( r1.segments[0].start - r2.segments[0].start ) > dist_l:

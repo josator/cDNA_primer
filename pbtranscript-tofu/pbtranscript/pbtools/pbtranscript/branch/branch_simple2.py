@@ -232,7 +232,7 @@ class BranchSimple:
     #         else:
     #             i += 1 # nothing to do, advance
 
-    def process_records(self, records, allow_extra_5_exons, skip_5_exon_alt, f_good, f_bad, f_group, tolerate_end=100, starting_isoform_index=0, gene_prefix='PB', collapse_3_distance=100):
+    def process_records(self, records, allow_extra_5_exons, skip_5_exon_alt, f_good, f_bad, f_group, tolerate_end=100, starting_isoform_index=0, gene_prefix='PB', collapse_3_distance=60, collapse_5_distance=300):
         """
         Given a set of records
         (1) process them by running through parse_transfrag2contig
@@ -259,7 +259,7 @@ class BranchSimple:
             result.append((r.qID, r.flag.strand, m))
 
         result_merged = list(result)
-        result_merged = iterative_merge_transcripts(list(result), node_d, collapse_3_distance, allow_extra_5_exons )
+        result_merged = iterative_merge_transcripts(list(result), node_d, collapse_3_distance, collapse_5_distance, allow_extra_5_exons )
         
         print >> sys.stderr, "merged {0} down to {1} transcripts".format(len(result), len(result_merged))
 
@@ -293,7 +293,7 @@ class BranchSimple:
 
         return result, result_merged
 
-def iterative_merge_transcripts(result_list, node_d, collapse_3_distance, merge5 = True):
+def iterative_merge_transcripts(result_list, node_d, collapse_3_distance, collapse_5_distance, merge5 = True):
     """
     result_list --- list of (qID, strand, binary exon sparse matrix)
     """
@@ -305,7 +305,7 @@ def iterative_merge_transcripts(result_list, node_d, collapse_3_distance, merge5
     result_list_minus.sort(key=lambda x: (x[1], x[2].nonzero()[1][0]))
 
     result_list = result_list_plus + result_list_minus
-    
+
     i = 0
     while i < len(result_list) - 1:
         j = i + 1
@@ -317,7 +317,7 @@ def iterative_merge_transcripts(result_list, node_d, collapse_3_distance, merge5
             else:
                 #print( id1 )
                 #print( id2 )
-                flag, m3 = compare_exon_matrix(m1, m2, id1, id2, node_d, strand1, collapse_3_distance, merge5)
+                flag, m3 = compare_exon_matrix(m1, m2, id1, id2, node_d, strand1, collapse_3_distance, collapse_5_distance, merge5)
                 if flag:
                     result_list[i] = (id1+','+id2, strand1, m3)
                     result_list.pop(j)
@@ -327,7 +327,7 @@ def iterative_merge_transcripts(result_list, node_d, collapse_3_distance, merge5
 
     return result_list
 
-def compare_exon_matrix(m1, m2, id1, id2, node_d, strand, collapse_3_distance, merge5=True):
+def compare_exon_matrix(m1, m2, id1, id2, node_d, strand, collapse_3_distance, collapse_5_distance, merge5=True):
     """
     m1, m2 are 1-d array where m1[0, i] is 1 if it uses the i-th exon, otherwise 0
     compare the two and merge them if they are compatible
@@ -373,9 +373,9 @@ def compare_exon_matrix(m1, m2, id1, id2, node_d, strand, collapse_3_distance, m
     #Set minimum distance to avoid collapses in 5' and 3'
     dist_l, dist_r = 0, 0
     if strand == '+':
-        dist_l, dist_r = 300, collapse_3_distance
+        dist_l, dist_r = collapse_5_distance, collapse_3_distance
     else:
-        dist_l, dist_r = collapse_3_distance, 300
+        dist_l, dist_r = collapse_3_distance, collapse_5_distance
 
     # does not intersect at all
     if l1[-1] < l2[0]: return False, None

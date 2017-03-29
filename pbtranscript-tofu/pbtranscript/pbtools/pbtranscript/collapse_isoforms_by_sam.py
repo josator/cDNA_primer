@@ -1,4 +1,4 @@
-#!/home/jsalavert/anaconda3/envs/pbtranscript/bin/python
+#!/usr/bin/env python
 __author__ = 'etseng@pacificbiosciences.com'
 #################################################################################$$
 # Copyright (c) 2011-2014, Pacific Biosciences of California, Inc.
@@ -152,7 +152,7 @@ def collapse_fuzzy_junctions(gff_filename, group_filename, allow_extra_5exon, in
             if can_merge(m, r, r2):
                 fuzzy_match[r2.seqid].append(r.seqid)
                 has_match = True
-                print( "Fuzzy match: " + r2.seqid + " and " + r.seqid )
+                #print( "Fuzzy match: " + r2.seqid + " and " + r.seqid )
                 break
         if not has_match:
             recs[r.chr][r.strand].insert(r.start, r.end, r)

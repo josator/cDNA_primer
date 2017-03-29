@@ -86,7 +86,7 @@ def compare_junctions(r1, r2, group_info, collapse_3_distance, internal_fuzzy_ma
                    abs(r1.segments[i+k+1].start-r2.segments[j+k+1].start)>internal_fuzzy_max_dist:
                     return "partial"
                 k += 1
-            print i, j, k
+            #print i, j, k
             if i+k+1 == len(r1.segments):
                 if j+k+1 == len(r2.segments): 
                     if i == 0:

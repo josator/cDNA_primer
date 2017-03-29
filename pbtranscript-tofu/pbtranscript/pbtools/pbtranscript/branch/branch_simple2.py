@@ -315,8 +315,8 @@ def iterative_merge_transcripts(result_list, node_d, collapse_3_distance, merge5
             if (strand1 != strand2) or (m1.nonzero()[1][-1] < m2.nonzero()[1][0]):
                 break
             else:
-                print( id1 )
-                print( id2 )
+                #print( id1 )
+                #print( id2 )
                 flag, m3 = compare_exon_matrix(m1, m2, id1, id2, node_d, strand1, collapse_3_distance, merge5)
                 if flag:
                     result_list[i] = (id1+','+id2, strand1, m3)

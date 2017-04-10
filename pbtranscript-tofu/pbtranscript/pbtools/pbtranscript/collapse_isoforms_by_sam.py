@@ -256,8 +256,8 @@ if __name__ == "__main__":
     parser.add_argument("--max_fuzzy_junction", default=5, type=int, help="Max fuzzy junction dist (default: 5 bp)")
     parser.add_argument("--flnc_coverage", dest="flnc_coverage", type=int, default=-1, help="Minimum # of FLNC reads, only use this for aligned FLNC reads, otherwise results undefined!")
     parser.add_argument("--dun-merge-5-shorter", action="store_false", dest="allow_extra_5exon", default=True, help="Don't collapse shorter 5' transcripts (default: turned off)")
-    parser.add_argument("--collapse-3-distance", default=60, dest="collapse_3_distance", type=int, help="Don't collapse 3' transcripts if exon distance is smaller (default: 60)")
-    parser.add_argument("--collapse-5-distance", default=300, dest="collapse_5_distance", type=int, help="Don't collapse 5' transcripts if exon distance is smaller (default: 300)")
+    parser.add_argument("--collapse-3-distance", default=50, dest="collapse_3_distance", type=int, help="Don't collapse 3' transcripts if exon distance is smaller (default: 50)")
+    parser.add_argument("--collapse-5-distance", default=50, dest="collapse_5_distance", type=int, help="Don't collapse 5' transcripts if exon distance is smaller (default: 50)")
     
     args = parser.parse_args()
     

@@ -1,4 +1,5 @@
-import os, sys, re
+import os, sys, json, re
+import pysam
 import numpy as np
 import pbtools.pbtranscript.BioReaders as BioReaders
 import pbtools.pbtranscript.c_branch as c_branch
@@ -24,7 +25,7 @@ class BranchSimple:
     BranchSimple is designed for just creating exons from PacBio's GMAP results
     Does not use Illumina
     """
-    def __init__(self, transfrag_filename, cov_threshold=2, min_aln_coverage=.99, min_aln_identity=.85, is_fq=False):
+    def __init__(self, transfrag_filename, gtf_tabix, gtf_json, cov_threshold=2, min_aln_coverage=.99, min_aln_identity=.85, is_fq=False):
         self.contiVec = None # current ContiVec object
         self.exons = None
         #self.MIN_EXON_SIZE = max_fuzzy_junction
@@ -35,13 +36,15 @@ class BranchSimple:
         else:
             self.transfrag_len_dict = dict((r.name.split()[0], len(r.sequence)) for r in FastaReader(transfrag_filename))
 
+        self.gtf_tabix = gtf_tabix
+        self.gtf_json = gtf_json
+
         self.cov_threshold = cov_threshold # only output GTF records if >= this many GMAP records support it (this must be if I'm running non-clustered fasta on GMAP)
 
         self.min_aln_coverage = min_aln_coverage
         self.min_aln_identity = min_aln_identity
 
         self.cuff_index = 1
-
 
     def iter_gmap_sam(self, gmap_sam_filename, ignored_fout):
         """
@@ -244,7 +247,6 @@ class BranchSimple:
         """
         self.parse_transfrag2contig(records, skip_5_exon_alt)
         self.exon_finding()
-
         #self.correct_micro_exons() # DOES NOT WORK....
 
         p = []
@@ -252,14 +254,16 @@ class BranchSimple:
         node_d = dict((x.interval.value, x) for x in p)
         mat_size = max(x.interval.value for x in p) + 1
         result = []
+        sID = None
         for r in records:
+            s_ID = r.sID
             stuff = self.match_record(r, tolerate_end=tolerate_end)#, tolerate_middle=self.MIN_EXON_SIZE)
             m = np.zeros((1, mat_size), dtype=np.int)
             for x in stuff: m[0, x.value]=1
             result.append((r.qID, r.flag.strand, m))
 
         result_merged = list(result)
-        result_merged = iterative_merge_transcripts(list(result), node_d, collapse_3_distance, collapse_5_distance, allow_extra_5_exons )
+        result_merged = iterative_merge_transcripts(self, list(result), node_d, s_ID, collapse_3_distance, collapse_5_distance, allow_extra_5_exons )
         
         print >> sys.stderr, "merged {0} down to {1} transcripts".format(len(result), len(result_merged))
 
@@ -293,7 +297,7 @@ class BranchSimple:
 
         return result, result_merged
 
-def iterative_merge_transcripts(result_list, node_d, collapse_3_distance, collapse_5_distance, merge5 = True):
+def iterative_merge_transcripts(self, result_list, node_d, s_ID, collapse_3_distance, collapse_5_distance, merge5 = True):
     """
     result_list --- list of (qID, strand, binary exon sparse matrix)
     """
@@ -317,7 +321,7 @@ def iterative_merge_transcripts(result_list, node_d, collapse_3_distance, collap
             else:
                 #print( id1 )
                 #print( id2 )
-                flag, m3 = compare_exon_matrix(m1, m2, id1, id2, node_d, strand1, collapse_3_distance, collapse_5_distance, merge5)
+                flag, m3 = compare_exon_matrix(self, m1, m2, id1, id2, node_d, s_ID, strand1, collapse_3_distance, collapse_5_distance, merge5)
                 if flag:
                     result_list[i] = (id1+','+id2, strand1, m3)
                     result_list.pop(j)
@@ -327,7 +331,7 @@ def iterative_merge_transcripts(result_list, node_d, collapse_3_distance, collap
 
     return result_list
 
-def compare_exon_matrix(m1, m2, id1, id2, node_d, strand, collapse_3_distance, collapse_5_distance, merge5=True):
+def compare_exon_matrix(self, m1, m2, id1, id2, node_d, s_ID, strand, collapse_3_distance, collapse_5_distance, merge5=True):
     """
     m1, m2 are 1-d array where m1[0, i] is 1 if it uses the i-th exon, otherwise 0
     compare the two and merge them if they are compatible
@@ -339,11 +343,29 @@ def compare_exon_matrix(m1, m2, id1, id2, node_d, strand, collapse_3_distance, c
 
     return {True|False}, {merged array|None}
     """
-
+  
     l1, l2 = m1.nonzero()[1], m2.nonzero()[1]
-    #print( l1 )
-    #print( l2 )
-    # let l1 be the one that has the earliest start
+
+    print( "Two strings:" )
+    print( id1 )
+    transcripts1 = []
+    for gtf_entry in self.gtf_tabix.fetch( s_ID, node_d[l1[0]].start+1, node_d[l1[-1]].end ):
+        gene = gtf_entry.split()[9][1:-2]
+        transcript = gtf_entry.split()[11][1:-2]
+        if (gene, transcript) not in transcripts1:
+            transcripts1.append( (gene, transcript) );
+    print( transcripts1 )
+
+    print( id2 )
+    transcripts2 = []
+    for gtf_entry in self.gtf_tabix.fetch( s_ID, node_d[l2[0]].start+1, node_d[l2[-1]].end ):
+        gene = gtf_entry.split()[9][1:-2]
+        transcript = gtf_entry.split()[11][1:-2]
+        if (gene, transcript) not in transcripts2:
+            transcripts2.append( (gene, transcript) );
+    print( transcripts2 )
+
+# let l1 be the one that has the earliest start
     if l2[0] < l1[0]:
         l1, l2 = l2, l1
         id1, id2 = id2, id1
@@ -528,8 +550,3 @@ def exon_matching(exon_tree, ref_exon, match_extend_tolerate_left, match_extend_
     else: # ack! could not find evidence for this :<
         return None
 
-
-
-                
-                
-    

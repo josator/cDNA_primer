@@ -36,7 +36,8 @@ __author__ = 'etseng@pacificbiosciences.com'
 # OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 # SUCH DAMAGE.
 #################################################################################$$
-import os, sys
+import os, sys, json
+import pysam
 from pbtools.pbtranscript.Utils import check_ids_unique
 from pbtools.pbtranscript.io.SeqReaders import LazyFastaReader, LazyFastqReader
 from pbtools.pbtranscript.branch import branch_simple2
@@ -180,7 +181,6 @@ def collapse_fuzzy_junctions(gff_filename, group_filename, allow_extra_5exon, in
 
     return fuzzy_match
 
-    
 def main(args):    
     if not os.path.exists(args.input):
         print >> sys.stderr, "Input file {0} does not exist. Abort.".format(args.fasta)
@@ -190,9 +190,23 @@ def main(args):
         print >> sys.stderr, "SAM file {0} does not exist. Abort.".format(args.sam)
         sys.exit(-1)
 
+    if args.refgtf != None:
+        if not os.path.exists( args.refgtf + str( ".json" ) ):
+            print >> sys.stderr, "GTF json file {0} does not exist. Abort.".format(args.refgtf + str( ".json" ))
+            sys.exit(-1)
+        if not os.path.exists( args.refgtf + str( ".gz" ) ):
+            print >> sys.stderr, "GTF tabix bgz file {0} does not exist. Abort.".format(args.refgtf+ str( ".gz" ))
+            sys.exit(-1)
+        if not os.path.exists( args.refgtf + str( ".gz.tbi" ) ):
+            print >> sys.stderr, "GTF tabix tbi file {0} does not exist. Abort.".format(args.refgtf + str( ".gz.tbi" ))
+            sys.exit(-1)
+
+    gtf_tabix = pysam.TabixFile( args.refgtf + str( ".gz"   ) )
+    gtf_json  = json.load( open( args.refgtf + str( ".json" ) ) )
+
     # check for duplicate IDs
     check_ids_unique(args.input, is_fq=args.fq)
-    
+
     ignored_fout = open(args.prefix + '.ignored_ids.txt', 'w')
 
     if args.flnc_coverage > 0:
@@ -205,7 +219,7 @@ def main(args):
         cov_threshold = 1
     f_txt = open(args.prefix + '.collapsed.group.txt', 'w')
     
-    b = branch_simple2.BranchSimple(args.input, cov_threshold=cov_threshold, min_aln_coverage=args.min_aln_coverage, min_aln_identity=args.min_aln_identity, is_fq=args.fq)
+    b = branch_simple2.BranchSimple(args.input, gtf_tabix, gtf_json, cov_threshold=cov_threshold, min_aln_coverage=args.min_aln_coverage, min_aln_identity=args.min_aln_identity, is_fq=args.fq)
     iter = b.iter_gmap_sam(args.sam, ignored_fout)
     for recs in iter:
         for v in recs.itervalues():
@@ -250,6 +264,7 @@ if __name__ == "__main__":
     parser.add_argument("--input", help="Input FA/FQ filename")
     parser.add_argument("--fq", default=False, action="store_true", help="Input is a fastq file (default is fasta)")
     parser.add_argument("-s", "--sam", required=True, help="Sorted GMAP SAM filename")
+    parser.add_argument("--refgtf", required=True, help="GTF with reference")
     parser.add_argument("-o", "--prefix", required=True, help="Output filename prefix")
     parser.add_argument("-c", "--min-coverage", dest="min_aln_coverage", type=float, default=.99, help="Minimum alignment coverage (default: 0.99)")
     parser.add_argument("-i", "--min-identity", dest="min_aln_identity", type=float, default=.95, help="Minimum alignment identity (default: 0.95)")
@@ -258,7 +273,7 @@ if __name__ == "__main__":
     parser.add_argument("--dun-merge-5-shorter", action="store_false", dest="allow_extra_5exon", default=True, help="Don't collapse shorter 5' transcripts (default: turned off)")
     parser.add_argument("--collapse-3-distance", default=50, dest="collapse_3_distance", type=int, help="Don't collapse 3' transcripts if exon distance is smaller (default: 50)")
     parser.add_argument("--collapse-5-distance", default=50, dest="collapse_5_distance", type=int, help="Don't collapse 5' transcripts if exon distance is smaller (default: 50)")
-    
+ 
     args = parser.parse_args()
     
     main(args)

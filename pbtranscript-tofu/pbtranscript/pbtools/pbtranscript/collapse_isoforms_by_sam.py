@@ -36,8 +36,9 @@ __author__ = 'etseng@pacificbiosciences.com'
 # OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 # SUCH DAMAGE.
 #################################################################################$$
-import os, sys, json
+import os, sys
 import pysam
+from collections import defaultdict
 from pbtools.pbtranscript.Utils import check_ids_unique
 from pbtools.pbtranscript.io.SeqReaders import LazyFastaReader, LazyFastqReader
 from pbtools.pbtranscript.branch import branch_simple2
@@ -108,7 +109,7 @@ def pick_rep(fa_fq_filename, gff_filename, group_filename, output_filename, is_f
 from collections import defaultdict
 from bx.intervals import IntervalTree
 
-def collapse_fuzzy_junctions(gff_filename, group_filename, allow_extra_5exon, internal_fuzzy_max_dist):
+def collapse_fuzzy_junctions(gff_filename, group_filename, fsm_maps, allow_extra_5exon, internal_fuzzy_max_dist):
     def get_fl_from_id(members):
         # ex: 13cycle_1Mag1Diff|i0HQ_SIRV_1d1m|c139597/f1p0/178
         return sum(int(_id.split('/')[1].split('p')[0][1:]) for _id in members)
@@ -149,7 +150,7 @@ def collapse_fuzzy_junctions(gff_filename, group_filename, allow_extra_5exon, in
         r.segments = r.ref_exons
         for r2 in recs[r.chr][r.strand].find(r.start, r.end):
             r2.segments = r2.ref_exons
-            m = compare_junctions.compare_junctions(r, r2, group_info, args.collapse_3_distance, args.collapse_5_distance, internal_fuzzy_max_dist=internal_fuzzy_max_dist)
+            m = compare_junctions.compare_junctions(r, r2, group_info, fsm_maps, args.collapse_3_distance, args.collapse_5_distance, internal_fuzzy_max_dist=internal_fuzzy_max_dist)
             if can_merge(m, r, r2):
                 fuzzy_match[r2.seqid].append(r.seqid)
                 has_match = True
@@ -182,27 +183,24 @@ def collapse_fuzzy_junctions(gff_filename, group_filename, allow_extra_5exon, in
     return fuzzy_match
 
 def main(args):    
-    if not os.path.exists(args.input):
+    if not os.path.exists( args.input ):
         print >> sys.stderr, "Input file {0} does not exist. Abort.".format(args.fasta)
         sys.exit(-1)
-    
-    if not os.path.exists(args.sam):
+ 
+    if not os.path.exists( args.sam ):
         print >> sys.stderr, "SAM file {0} does not exist. Abort.".format(args.sam)
         sys.exit(-1)
 
-    if args.refgtf != None:
-        if not os.path.exists( args.refgtf + str( ".json" ) ):
-            print >> sys.stderr, "GTF json file {0} does not exist. Abort.".format(args.refgtf + str( ".json" ))
-            sys.exit(-1)
-        if not os.path.exists( args.refgtf + str( ".gz" ) ):
-            print >> sys.stderr, "GTF tabix bgz file {0} does not exist. Abort.".format(args.refgtf+ str( ".gz" ))
-            sys.exit(-1)
-        if not os.path.exists( args.refgtf + str( ".gz.tbi" ) ):
-            print >> sys.stderr, "GTF tabix tbi file {0} does not exist. Abort.".format(args.refgtf + str( ".gz.tbi" ))
-            sys.exit(-1)
+    if not os.path.exists( args.sqanti ):
+        print >> sys.stderr, "SQANTI report file {0} does not exist. Abort.".format( args.sqanti )
+        sys.exit(-1)
 
-    gtf_tabix = pysam.TabixFile( args.refgtf + str( ".gz"   ) )
-    gtf_json  = json.load( open( args.refgtf + str( ".json" ) ) )
+    fsm_maps = defaultdict()
+    for line in open( args.sqanti ):
+        columns = line.split()
+        
+        if ( columns[5] == "full-splice_match" ):
+            fsm_maps[columns[0]] = columns[7]
 
     # check for duplicate IDs
     check_ids_unique(args.input, is_fq=args.fq)
@@ -219,12 +217,12 @@ def main(args):
         cov_threshold = 1
     f_txt = open(args.prefix + '.collapsed.group.txt', 'w')
     
-    b = branch_simple2.BranchSimple(args.input, gtf_tabix, gtf_json, cov_threshold=cov_threshold, min_aln_coverage=args.min_aln_coverage, min_aln_identity=args.min_aln_identity, is_fq=args.fq)
+    b = branch_simple2.BranchSimple(args.input, fsm_maps, cov_threshold=cov_threshold, min_aln_coverage=args.min_aln_coverage, min_aln_identity=args.min_aln_identity, is_fq=args.fq)
     iter = b.iter_gmap_sam(args.sam, ignored_fout)
     for recs in iter:
         for v in recs.itervalues():
             if len(v) > 0: b.process_records(v, args.allow_extra_5exon, False, f_good, f_bad, f_txt, collapse_3_distance = args.collapse_3_distance, collapse_5_distance = args.collapse_5_distance)
-    
+
     ignored_fout.close()
     f_good.close()
     try:
@@ -234,7 +232,9 @@ def main(args):
     f_txt.close()
 
     if args.max_fuzzy_junction > 0: # need to further collapse those that have fuzzy junctions!
-        collapse_fuzzy_junctions(f_good.name, f_txt.name, args.allow_extra_5exon, internal_fuzzy_max_dist=args.max_fuzzy_junction)
+        print(f_good.name)
+        print(f_txt.name)
+        collapse_fuzzy_junctions(f_good.name, f_txt.name, fsm_maps, args.allow_extra_5exon, internal_fuzzy_max_dist=args.max_fuzzy_junction)
         os.rename(f_good.name, f_good.name+'.unfuzzy')
         os.rename(f_txt.name, f_txt.name+'.unfuzzy')
         os.rename(f_good.name+'.fuzzy', f_good.name)
@@ -264,7 +264,7 @@ if __name__ == "__main__":
     parser.add_argument("--input", help="Input FA/FQ filename")
     parser.add_argument("--fq", default=False, action="store_true", help="Input is a fastq file (default is fasta)")
     parser.add_argument("-s", "--sam", required=True, help="Sorted GMAP SAM filename")
-    parser.add_argument("--refgtf", required=True, help="GTF with reference")
+    parser.add_argument("--sqanti", required=True, help="SQANTI report file")
     parser.add_argument("-o", "--prefix", required=True, help="Output filename prefix")
     parser.add_argument("-c", "--min-coverage", dest="min_aln_coverage", type=float, default=.99, help="Minimum alignment coverage (default: 0.99)")
     parser.add_argument("-i", "--min-identity", dest="min_aln_identity", type=float, default=.95, help="Minimum alignment identity (default: 0.95)")

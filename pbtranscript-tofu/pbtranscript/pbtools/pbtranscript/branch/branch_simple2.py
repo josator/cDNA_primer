@@ -25,7 +25,7 @@ class BranchSimple:
     BranchSimple is designed for just creating exons from PacBio's GMAP results
     Does not use Illumina
     """
-    def __init__(self, transfrag_filename, gtf_tabix, gtf_json, cov_threshold=2, min_aln_coverage=.99, min_aln_identity=.85, is_fq=False):
+    def __init__(self, transfrag_filename, fsm_maps, cov_threshold=2, min_aln_coverage=.99, min_aln_identity=.85, is_fq=False):
         self.contiVec = None # current ContiVec object
         self.exons = None
         #self.MIN_EXON_SIZE = max_fuzzy_junction
@@ -36,8 +36,7 @@ class BranchSimple:
         else:
             self.transfrag_len_dict = dict((r.name.split()[0], len(r.sequence)) for r in FastaReader(transfrag_filename))
 
-        self.gtf_tabix = gtf_tabix
-        self.gtf_json = gtf_json
+        self.fsm_maps = fsm_maps
 
         self.cov_threshold = cov_threshold # only output GTF records if >= this many GMAP records support it (this must be if I'm running non-clustered fasta on GMAP)
 
@@ -254,16 +253,27 @@ class BranchSimple:
         node_d = dict((x.interval.value, x) for x in p)
         mat_size = max(x.interval.value for x in p) + 1
         result = []
-        sID = None
         for r in records:
-            s_ID = r.sID
             stuff = self.match_record(r, tolerate_end=tolerate_end)#, tolerate_middle=self.MIN_EXON_SIZE)
             m = np.zeros((1, mat_size), dtype=np.int)
             for x in stuff: m[0, x.value]=1
-            result.append((r.qID, r.flag.strand, m))
+            # NOT USED: Get transcripts related without mapping
+            #transcripts = []
+            #l = m.nonzero()[1]
+            #for gtf_entry in self.gtf_tabix.fetch( r.sID, node_d[l[0]].start+1, node_d[l[-1]].end ):
+            #    gene = gtf_entry.split()[9][1:-2]
+            #    transcript = gtf_entry.split()[11][1:-2]
+            #    if (gene, transcript) not in transcripts:
+            #        transcripts.append( (gene, transcript) );
+            #print( transcripts )
+            try:
+                result.append((r.qID, r.flag.strand, m, self.fsm_maps[r.qID]))
+            except KeyError:
+                result.append((r.qID, r.flag.strand, m, None))
+            print(result[-1])
 
         result_merged = list(result)
-        result_merged = iterative_merge_transcripts(self, list(result), node_d, s_ID, collapse_3_distance, collapse_5_distance, allow_extra_5_exons )
+        result_merged = iterative_merge_transcripts(self, list(result), node_d, collapse_3_distance, collapse_5_distance, allow_extra_5_exons )
         
         print >> sys.stderr, "merged {0} down to {1} transcripts".format(len(result), len(result_merged))
 
@@ -271,7 +281,7 @@ class BranchSimple:
         # make the exon value --> interval dictionary
         a = []
 
-        for ids, strand, m in result_merged:
+        for ids, strand, m, fsm in result_merged:
             assert self.strand==strand
             if ids.count(',')+1 < self.cov_threshold:
                 f_out = f_bad
@@ -297,7 +307,7 @@ class BranchSimple:
 
         return result, result_merged
 
-def iterative_merge_transcripts(self, result_list, node_d, s_ID, collapse_3_distance, collapse_5_distance, merge5 = True):
+def iterative_merge_transcripts(self, result_list, node_d, collapse_3_distance, collapse_5_distance, merge5 = True):
     """
     result_list --- list of (qID, strand, binary exon sparse matrix)
     """
@@ -314,16 +324,14 @@ def iterative_merge_transcripts(self, result_list, node_d, s_ID, collapse_3_dist
     while i < len(result_list) - 1:
         j = i + 1
         while j < len(result_list):
-            id1, strand1, m1 = result_list[i]
-            id2, strand2, m2 = result_list[j]
+            id1, strand1, m1, fsm1 = result_list[i]
+            id2, strand2, m2, fsm2 = result_list[j]
             if (strand1 != strand2) or (m1.nonzero()[1][-1] < m2.nonzero()[1][0]):
                 break
             else:
-                #print( id1 )
-                #print( id2 )
-                flag, m3 = compare_exon_matrix(self, m1, m2, id1, id2, node_d, s_ID, strand1, collapse_3_distance, collapse_5_distance, merge5)
+                flag, m3, fsm3 = compare_exon_matrix(self, m1, m2, id1, id2, fsm1, fsm2, node_d, strand1, collapse_3_distance, collapse_5_distance, merge5)
                 if flag:
-                    result_list[i] = (id1+','+id2, strand1, m3)
+                    result_list[i] = (id1+','+id2, strand1, m3, fsm3)
                     result_list.pop(j)
                 else:
                     j += 1
@@ -331,7 +339,7 @@ def iterative_merge_transcripts(self, result_list, node_d, s_ID, collapse_3_dist
 
     return result_list
 
-def compare_exon_matrix(self, m1, m2, id1, id2, node_d, s_ID, strand, collapse_3_distance, collapse_5_distance, merge5=True):
+def compare_exon_matrix(self, m1, m2, id1, id2, fsm1, fsm2, node_d, strand, collapse_3_distance, collapse_5_distance, merge5=True):
     """
     m1, m2 are 1-d array where m1[0, i] is 1 if it uses the i-th exon, otherwise 0
     compare the two and merge them if they are compatible
@@ -341,31 +349,12 @@ def compare_exon_matrix(self, m1, m2, id1, id2, node_d, s_ID, strand, collapse_3
               if False, then m1 and m2 must have the same first (5') exon and only allowed
                         if the difference is the very start
 
-    return {True|False}, {merged array|None}
+    return {True|False}, {merged array|None}, {FSM|None}
     """
-  
+
     l1, l2 = m1.nonzero()[1], m2.nonzero()[1]
 
-    print( "Two strings:" )
-    print( id1 )
-    transcripts1 = []
-    for gtf_entry in self.gtf_tabix.fetch( s_ID, node_d[l1[0]].start+1, node_d[l1[-1]].end ):
-        gene = gtf_entry.split()[9][1:-2]
-        transcript = gtf_entry.split()[11][1:-2]
-        if (gene, transcript) not in transcripts1:
-            transcripts1.append( (gene, transcript) );
-    print( transcripts1 )
-
-    print( id2 )
-    transcripts2 = []
-    for gtf_entry in self.gtf_tabix.fetch( s_ID, node_d[l2[0]].start+1, node_d[l2[-1]].end ):
-        gene = gtf_entry.split()[9][1:-2]
-        transcript = gtf_entry.split()[11][1:-2]
-        if (gene, transcript) not in transcripts2:
-            transcripts2.append( (gene, transcript) );
-    print( transcripts2 )
-
-# let l1 be the one that has the earliest start
+    # let l1 be the one that has the earliest start
     if l2[0] < l1[0]:
         l1, l2 = l2, l1
         id1, id2 = id2, id1
@@ -400,7 +389,7 @@ def compare_exon_matrix(self, m1, m2, id1, id2, node_d, s_ID, strand, collapse_3
         dist_l, dist_r = collapse_3_distance, collapse_5_distance
 
     # does not intersect at all
-    if l1[-1] < l2[0]: return False, None
+    if l1[-1] < l2[0]: return False, None, None
 
     n1 = len(l1)
     n2 = len(l2)
@@ -409,16 +398,16 @@ def compare_exon_matrix(self, m1, m2, id1, id2, node_d, s_ID, strand, collapse_3
     for i in xrange(n1):
         if l1[i] == l2[0]: break
         elif i > 0 and (strand=='-' and node_d[l1[i-1]].end!=node_d[l1[i]].start):
-            return False, None # 3' end disagree
+            return False, None, None # 3' end disagree
         elif i > 0 and (strand=='+' and node_d[l1[i-1]].end!=node_d[l1[i]].start):
             if not merge5 or fl2 > g2:
-                return False, None # 5' end disagree, in other words m1 has an extra 5' exon that m2 does not have and merge5 is no allowed
+                return False, None, None # 5' end disagree, in other words m1 has an extra 5' exon that m2 does not have and merge5 is no allowed
 
     if abs( node_d[l1[0]].start - node_d[l2[0]].start ) > dist_l:
         if node_d[l1[0]].start < node_d[l2[0]].start and fl2 > g2: 
-            return False, None
+            return False, None, None
         if node_d[l1[0]].start > node_d[l2[0]].start and fl1 > g1:
-            return False, None
+            return False, None, None
 
     # at this point: l1[i] == l2[0]
 
@@ -428,7 +417,7 @@ def compare_exon_matrix(self, m1, m2, id1, id2, node_d, s_ID, strand, collapse_3
     for j in xrange(i, min(n1, n2+i)):
         # matching l1[j] with l2[j-i]
         if l1[j] != l2[j-i]: # they must not match
-            return False, None
+            return False, None, None
  
     # pre: l1 and l2 agree up to j, j-i
     if j == n1-1: # End of l1, check if remaining l2 are adjacent
@@ -436,48 +425,48 @@ def compare_exon_matrix(self, m1, m2, id1, id2, node_d, s_ID, strand, collapse_3
 
             if abs( node_d[l1[n1-1]].end - node_d[l2[n2-1]].end ) > dist_r:
                 if node_d[l1[n1-1]].end < node_d[l2[n2-1]].end and fl1 > g1: 
-                    return False, None
+                    return False, None, None
                 if node_d[l1[n1-1]].end > node_d[l2[n2-1]].end and fl2 > g2:
-                    return False, None
+                    return False, None, None
 
-            return True, m1
+            return True, m1, fsm1
         for k in xrange(j-i+1, n2):
             # case 1: this is the 3' end, check that there are no additional 3' exons
-            if (strand=='+' and node_d[l2[k-1]].end!=node_d[l2[k]].start): return False, None
+            if (strand=='+' and node_d[l2[k-1]].end!=node_d[l2[k]].start): return False, None, None
             # case 2: this is the 5' end, check that there are no additional 5' exons unless allowed
             if (strand=='-' and node_d[l2[k-1]].end!=node_d[l2[k]].start):
                 if not merge5 or fl1 > g1:
-                    return False, None
+                    return False, None, None
 
         if abs( node_d[l1[n1-1]].end - node_d[l2[n2-1]].end ) > dist_r:
             if node_d[l1[n1-1]].end < node_d[l2[n2-1]].end and fl1 > g1: 
-                return False, None
+                return False, None, None
             if node_d[l1[n1-1]].end > node_d[l2[n2-1]].end and fl2 > g2:
-                return False, None
+                return False, None, None
 
         if strand == '+' or ( strand == '-' and mfl1 <= mfl2 ):
             m1[0, l2[j-i+1]:] = m2[0, l2[j-i+1]:]
 
-        return True, m1
+        return True, m1, fsm1
     elif j-i == n2-1: # End of l2, l1 has remaining
         for k in xrange(j+1, n1):
             # case 1, but for m1
-            if (strand=='+' and node_d[l1[k-1]].end!=node_d[l1[k]].start): return False, None
+            if (strand=='+' and node_d[l1[k-1]].end!=node_d[l1[k]].start): return False, None, None
             # case 2, but for m1
             if (strand=='-' and node_d[l1[k-1]].end!=node_d[l1[k]].start):
                 if not merge5 or fl2 > g2:
-                    return False, None
+                    return False, None, None
 
         if abs( node_d[l1[n1-1]].end - node_d[l2[n2-1]].end ) > dist_r:
             if node_d[l1[n1-1]].end < node_d[l2[n2-1]].end and fl1 > g1: 
-                return False, None
+                return False, None, None
             if node_d[l1[n1-1]].end > node_d[l2[n2-1]].end and fl2 > g2:
-                return False, None
+                return False, None, None
 
         if strand == '-' and mfl1 < mfl2 :
             m1[0, l2[j-i]+1:] = m2[0, l2[j-i]+1:]
 
-        return True, m1
+        return True, m1, fsm1
 
     raise Exception, "Should not happen"
 

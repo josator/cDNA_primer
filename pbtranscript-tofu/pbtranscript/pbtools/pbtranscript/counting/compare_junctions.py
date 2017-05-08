@@ -3,7 +3,7 @@ import re
 def overlaps(s1, s2):
     return max(0, min(s1.end, s2.end) - max(s1.start, s2.start))
 
-def compare_junctions(r1, r2, group_info, collapse_3_distance, collapse_5_distance, internal_fuzzy_max_dist=0):
+def compare_junctions(r1, r2, group_info, fsm_maps, collapse_3_distance, collapse_5_distance, internal_fuzzy_max_dist=0):
     """
     r1, r2 should both be BioReaders.GMAPSAMRecord
     
@@ -16,7 +16,7 @@ def compare_junctions(r1, r2, group_info, collapse_3_distance, collapse_5_distan
     <internal_fuzzy_max_dist> allows for very small amounts of diff between internal exons
     useful for chimeric & slightly bad mappings
     """
-
+    
     # extract full-length group information
     g1, fl1, mfl1 = 0, 0, -1
     for group in group_info[r1.seqid]:

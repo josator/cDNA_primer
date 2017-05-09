@@ -270,11 +270,11 @@ class BranchSimple:
                 result.append((r.qID, r.flag.strand, m, self.fsm_maps[r.qID]))
             except KeyError:
                 result.append((r.qID, r.flag.strand, m, None))
-            print(result[-1])
+            #print(result[-1])
 
         result_merged = list(result)
         result_merged = iterative_merge_transcripts(self, list(result), node_d, collapse_3_distance, collapse_5_distance, allow_extra_5_exons )
-        
+ 
         print >> sys.stderr, "merged {0} down to {1} transcripts".format(len(result), len(result_merged))
 
         self.isoform_index = starting_isoform_index
@@ -352,6 +352,9 @@ def compare_exon_matrix(self, m1, m2, id1, id2, fsm1, fsm2, node_d, strand, coll
     return {True|False}, {merged array|None}, {FSM|None}
     """
 
+    if fsm1 != None and fsm2 != None and fsm1 != fsm2:
+        return False, None, None
+
     l1, l2 = m1.nonzero()[1], m2.nonzero()[1]
 
     # let l1 be the one that has the earliest start
@@ -359,6 +362,7 @@ def compare_exon_matrix(self, m1, m2, id1, id2, fsm1, fsm2, node_d, strand, coll
         l1, l2 = l2, l1
         id1, id2 = id2, id1
         m1, m2 = m2, m1
+        fsm1, fsm2 = fsm2, fsm1
 
     # extract full-length group information
     g1, fl1, mfl1 = 0, 0, -1
@@ -429,7 +433,13 @@ def compare_exon_matrix(self, m1, m2, id1, id2, fsm1, fsm2, node_d, strand, coll
                 if node_d[l1[n1-1]].end > node_d[l2[n2-1]].end and fl2 > g2:
                     return False, None, None
 
-            return True, m1, fsm1
+            if   fsm1 != None:
+                return True, m1, fsm1
+            elif fsm2 != None:
+                return True, m1, fsm2
+            else:
+                return True, m1, None
+
         for k in xrange(j-i+1, n2):
             # case 1: this is the 3' end, check that there are no additional 3' exons
             if (strand=='+' and node_d[l2[k-1]].end!=node_d[l2[k]].start): return False, None, None
@@ -447,7 +457,13 @@ def compare_exon_matrix(self, m1, m2, id1, id2, fsm1, fsm2, node_d, strand, coll
         if strand == '+' or ( strand == '-' and mfl1 <= mfl2 ):
             m1[0, l2[j-i+1]:] = m2[0, l2[j-i+1]:]
 
-        return True, m1, fsm1
+        if   fsm1 != None:
+            return True, m1, fsm1
+        elif fsm2 != None:
+            return True, m1, fsm2
+        else:
+            return True, m1, None
+
     elif j-i == n2-1: # End of l2, l1 has remaining
         for k in xrange(j+1, n1):
             # case 1, but for m1
@@ -466,7 +482,12 @@ def compare_exon_matrix(self, m1, m2, id1, id2, fsm1, fsm2, node_d, strand, coll
         if strand == '-' and mfl1 < mfl2 :
             m1[0, l2[j-i]+1:] = m2[0, l2[j-i]+1:]
 
-        return True, m1, fsm1
+        if   fsm1 != None:
+            return True, m1, fsm1
+        elif fsm2 != None:
+            return True, m1, fsm2
+        else:
+            return True, m1, None
 
     raise Exception, "Should not happen"
 

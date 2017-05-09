@@ -195,6 +195,7 @@ def main(args):
         print >> sys.stderr, "SQANTI report file {0} does not exist. Abort.".format( args.sqanti )
         sys.exit(-1)
 
+    # Load FSM info from SQANTI report
     fsm_maps = defaultdict()
     for line in open( args.sqanti ):
         columns = line.split()

@@ -16,23 +16,36 @@ def compare_junctions(r1, r2, group_info, fsm_maps, collapse_3_distance, collaps
     <internal_fuzzy_max_dist> allows for very small amounts of diff between internal exons
     useful for chimeric & slightly bad mappings
     """
-    
+
     # extract full-length group information
-    g1, fl1, mfl1 = 0, 0, -1
+    g1, fl1, mfl1, fsm1 = 0, 0, -1, None
     for group in group_info[r1.seqid]:
+        try:
+            fsm1 = fsm_maps[group]
+        except KeyError:
+            pass
+
         aux1 = int( re.search( 'f.*p', group.split( "|", 1 )[1] ).group(0)[1:-1] )
         if aux1 > mfl1:
             mfl1 = aux1
         fl1 += aux1 
         g1 += 1
 
-    g2, fl2, mfl2 = 0, 0, -1
+    g2, fl2, mfl2, fsm2 = 0, 0, -1, None
     for group in group_info[r2.seqid]:
+        try:
+            fsm2 = fsm_maps[group]
+        except KeyError:
+            pass
+
         aux2 = int( re.search( 'f.*p', group.split( "|", 1 )[1] ).group(0)[1:-1] )
         if aux2 > mfl2:
             mfl2 = aux2
         fl2 += aux2
         g2 += 1
+
+    if fsm1 != None and fsm2 != None and fsm1 != fsm2:
+        return "nomatch"
 
     #Set minimum distance to avoid collapses in 3' and 5'
     dist_l, dist_r = 0, 0

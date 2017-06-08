@@ -25,7 +25,8 @@ def compare_junctions(r1, r2, group_info, fsm_maps, collapse_3_distance, collaps
         except KeyError:
             pass
 
-        aux1 = int( re.search( 'f.*p', group.split( "|", 1 )[1] ).group(0)[1:-1] )
+        aux1 = int( re.search( 'f.*p', group ).group(0)[1:-1] )
+        #aux1 = int( re.search( 'f.*p', group.split( "|", 1 )[1] ).group(0)[1:-1] )
         if aux1 > mfl1:
             mfl1 = aux1
         fl1 += aux1 
@@ -38,7 +39,8 @@ def compare_junctions(r1, r2, group_info, fsm_maps, collapse_3_distance, collaps
         except KeyError:
             pass
 
-        aux2 = int( re.search( 'f.*p', group.split( "|", 1 )[1] ).group(0)[1:-1] )
+        aux2 = int( re.search( 'f.*p', group ).group(0)[1:-1] )
+        #aux2 = int( re.search( 'f.*p', group.split( "|", 1 )[1] ).group(0)[1:-1] )
         if aux2 > mfl2:
             mfl2 = aux2
         fl2 += aux2

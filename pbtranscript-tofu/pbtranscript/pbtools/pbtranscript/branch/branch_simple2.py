@@ -62,7 +62,7 @@ class BranchSimple:
             if r.sID == '*':
                 ignored_fout.write("{0}\tUnmapped.\n".format(r.qID))
             elif r.qCoverage < self.min_aln_coverage:
-                ignored_fout.write("{0}\tCoverage {1:.3f} too low.\n".format(r.qID, r.qCoverage))
+                ignored_fout.write("{0}\tCoverage {1:.3f} too low.\n".format(r.qID, r.qCoverage or 0))
             elif r.identity < self.min_aln_identity:
                 ignored_fout.write("{0}\tIdentity {1:.3f} too low.\n".format(r.qID, r.identity))
             else:
@@ -77,7 +77,7 @@ class BranchSimple:
                 print >> sys.stderr, "SAM file is NOT sorted. ABORT!"
                 sys.exit(-1)
             if r.qCoverage < self.min_aln_coverage:
-                ignored_fout.write("{0}\tCoverage {1:.3f} too low.\n".format(r.qID, r.qCoverage))
+                ignored_fout.write("{0}\tCoverage {1:.3f} too low.\n".format(r.qID, r.qCoverage or 0))
             elif r.identity < self.min_aln_identity:
                 ignored_fout.write("{0}\tIdentity {1:.3f} too low.\n".format(r.qID, r.identity))
             elif r.sID != records[0].sID or r.sStart > max(x.sEnd for x in records):
@@ -367,7 +367,8 @@ def compare_exon_matrix(self, m1, m2, id1, id2, fsm1, fsm2, node_d, strand, coll
     # extract full-length group information
     g1, fl1, mfl1 = 0, 0, -1
     for group in id1.split(","):
-        aux1 = int( re.search( 'f.*p', group.split( "|", 1 )[1] ).group(0)[1:-1] )
+        aux1 = int( re.search( 'f.*p', group ).group(0)[1:-1] )
+        #aux1 = int( re.search( 'f.*p', group.split( "|", 1 )[1] ).group(0)[1:-1] )
         if aux1 > mfl1:
             mfl1 = aux1
         fl1 += aux1
@@ -377,7 +378,8 @@ def compare_exon_matrix(self, m1, m2, id1, id2, fsm1, fsm2, node_d, strand, coll
 
     g2, fl2, mfl2 = 0, 0, -1
     for group in id2.split(","):
-        aux2 = int( re.search( 'f.*p', group.split( "|", 1 )[1] ).group(0)[1:-1] )
+        aux2 = int( re.search( 'f.*p', group ).group(0)[1:-1] )
+        #aux2 = int( re.search( 'f.*p', group.split( "|", 1 )[1] ).group(0)[1:-1] )
         if aux2 > mfl2:
             mfl2 = aux2
         fl2 += aux2

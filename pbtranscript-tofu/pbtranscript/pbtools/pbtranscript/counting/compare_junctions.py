@@ -96,9 +96,15 @@ def compare_junctions(r1, r2, group_info, fsm_maps, collapse_3_distance, collaps
         if len(r2.segments) == 1: return "super"
         else: # both r1 and r2 are multi-exon, check that all remaining junctions agree
             k = 0
-            if ( i != 0 or j != 0 ):
-                if abs(r1.segments[i+k].start-r2.segments[j+k].start)>internal_fuzzy_max_dist:
+            if i > 0: # r1 not at beginning, r2     at beginning 
+                if r2.segments[j+k].start < r1.segments[i+k].start - internal_fuzzy_max_dist:
                     return "partial"
+            if j > 0: # r1     at beginning, r2 not at beginning 
+                if r1.segments[i+k].start < r2.segments[j+k].start - internal_fuzzy_max_dist:
+                    return "partial"
+            #if ( i != 0 or j != 0 ):
+            #    if abs(r1.segments[i+k].start-r2.segments[j+k].start)>internal_fuzzy_max_dist:
+            #        return "partial"
             while i+k+1 < len(r1.segments) and j+k+1 < len(r2.segments):
                 if abs(r1.segments[i+k].end-r2.segments[j+k].end)>internal_fuzzy_max_dist or \
                    abs(r1.segments[i+k+1].start-r2.segments[j+k+1].start)>internal_fuzzy_max_dist:
@@ -112,7 +118,7 @@ def compare_junctions(r1, r2, group_info, fsm_maps, collapse_3_distance, collaps
                         else: return "subset"    # j > 0
                     else: return "super"
                 else: # r1 is at end, r2 not at end
-                    if abs(r1.segments[i+k].end-r2.segments[j+k].end)>internal_fuzzy_max_dist:
+                    if r1.segments[i+k].end > r2.segments[j+k].end + internal_fuzzy_max_dist:
                         return "partial"
                     if i == 0: return "subset"
                     else:  # i > 0
@@ -122,12 +128,12 @@ def compare_junctions(r1, r2, group_info, fsm_maps, collapse_3_distance, collaps
                         else: 
                             return "concordant"
             else: # r1 not at end, r2 must be at end
-                if abs(r1.segments[i+k].end-r2.segments[j+k].end)>internal_fuzzy_max_dist:
+                if r2.segments[j+k].end > r1.segments[i+k].end + internal_fuzzy_max_dist:
                     return "partial"
                 if j == 0: return "super"
                 else:
                     if abs(r1.segments[i+k-1].end-r2.segments[j+k-1].end)>internal_fuzzy_max_dist or \
-                        abs(r1.segments[i+k].start-r2.segments[j+k].start)>internal_fuzzy_max_dist:
+                       abs(r1.segments[i+k].start-r2.segments[j+k].start)>internal_fuzzy_max_dist:
                         return "partial"
                     else:
                         return "concordant"

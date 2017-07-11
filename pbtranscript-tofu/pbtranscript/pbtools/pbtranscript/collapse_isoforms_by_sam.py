@@ -143,7 +143,7 @@ def collapse_fuzzy_junctions(gff_filename, group_filename, fsm_maps, allow_extra
 
     d = {}
     recs = defaultdict(lambda: {'+':IntervalTree(), '-':IntervalTree()}) # chr --> strand --> tree
-    fuzzy_match = defaultdict(lambda: [])
+    fuzzy_match2 = defaultdict(lambda: [])
     for r in GFF.collapseGFFReader(gff_filename):
         d[r.seqid] = r
         has_match = False
@@ -152,13 +152,26 @@ def collapse_fuzzy_junctions(gff_filename, group_filename, fsm_maps, allow_extra
             r2.segments = r2.ref_exons
             m = compare_junctions.compare_junctions(r, r2, group_info, fsm_maps, args.collapse_3_distance, args.collapse_5_distance, internal_fuzzy_max_dist=internal_fuzzy_max_dist)
             if can_merge(m, r, r2):
-                fuzzy_match[r2.seqid].append(r.seqid)
-                has_match = True
-                #print( "Fuzzy match: " + r2.seqid + " and " + r.seqid )
-                break
+                fm_merge=True
+                for (fm_id, fm_r) in fuzzy_match2[r2.seqid]:
+                    if fm_id == r2.seqid:
+                        continue
+                    else:
+                        m2 = compare_junctions.compare_junctions(r, fm_r, group_info, fsm_maps, args.collapse_3_distance, args.collapse_5_distance, internal_fuzzy_max_dist=internal_fuzzy_max_dist)
+                        if not can_merge(m2, r, fm_r):
+                            fm_merge = False
+                            break
+                if fm_merge:
+                    fuzzy_match2[r2.seqid].append((r.seqid,r))
+                    has_match = True
+                    break
         if not has_match:
             recs[r.chr][r.strand].insert(r.start, r.end, r)
-            fuzzy_match[r.seqid] = [r.seqid]
+            fuzzy_match2[r.seqid] = [(r.seqid, r)]
+
+    fuzzy_match = defaultdict(lambda: [])
+    for fm2_key, fm2_value in fuzzy_match2.iteritems():
+        fuzzy_match[fm2_key] = [ x[0] for x in fm2_value ]
 
     # pick for each fuzzy group the one that has the most exons (if tie, then most FL)
     keys = fuzzy_match.keys()

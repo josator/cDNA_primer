@@ -422,7 +422,7 @@ def compare_exon_matrix(self, m1, m2, id1, id2, fsm1, fsm2, node_d, strand, coll
 
     for j in xrange(i, min(n1, n2+i)):
         # matching l1[j] with l2[j-i]
-        if l1[j] != l2[j-i]: # they must not match
+        if l1[j] != l2[j-i]: # they must match
             return False, None, None
  
     # pre: l1 and l2 agree up to j, j-i

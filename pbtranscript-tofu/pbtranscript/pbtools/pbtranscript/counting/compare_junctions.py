@@ -46,6 +46,7 @@ def compare_junctions(r1, r2, group_info, fsm_maps, collapse_3_distance, collaps
         fl2 += aux2
         g2 += 1
 
+    # The same condition applied in compare exon matrix 
     if fsm1 != None and fsm2 != None and fsm1 != fsm2:
         return "nomatch"
 
@@ -102,6 +103,9 @@ def compare_junctions(r1, r2, group_info, fsm_maps, collapse_3_distance, collaps
             if j > 0: # r1     at beginning, r2 not at beginning 
                 if r1.segments[i+k].start < r2.segments[j+k].start - internal_fuzzy_max_dist:
                     return "partial"
+            #if ( i != 0 or j != 0 ):
+            #    if abs(r1.segments[i+k].start-r2.segments[j+k].start)>internal_fuzzy_max_dist:
+            #        return "partial"
             while i+k+1 < len(r1.segments) and j+k+1 < len(r2.segments):
                 if abs(r1.segments[i+k].end-r2.segments[j+k].end)>internal_fuzzy_max_dist or \
                    abs(r1.segments[i+k+1].start-r2.segments[j+k+1].start)>internal_fuzzy_max_dist:
